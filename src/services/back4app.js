@@ -268,13 +268,26 @@ async function findRoom(roomCode) {
   return res.results?.[0] || null;
 }
 
-function buildPlayerState(user, { score = 0, currentQuestion = 1, correctAnswers = 0, status = 'PLAYING' } = {}) {
+export async function fetchMultiplayerRoom(roomCode) {
+  if (!isBack4AppConfigured) return null;
+  try {
+    return await findRoom(normalizeRoomCode(roomCode));
+  } catch {
+    return null;
+  }
+}
+
+function buildPlayerState(
+  user,
+  { score = 0, currentQuestion = 1, correctAnswers = 0, maxStreak = 0, status = 'PLAYING' } = {}
+) {
   return {
     userId: user.objectId,
     username: user.username,
     score,
     currentQuestion,
     correctAnswers,
+    maxStreak,
     status,
     updatedAt: new Date().toISOString(),
   };
@@ -319,9 +332,23 @@ export async function joinOrCreateMultiplayerRoom({ user, roomCode }) {
   return { ...body, objectId: created.objectId };
 }
 
-export async function updateMultiplayerProgress({ user, roomState, score, currentQuestion, correctAnswers, status = 'PLAYING' }) {
+export async function updateMultiplayerProgress({
+  user,
+  roomState,
+  score,
+  currentQuestion,
+  correctAnswers,
+  maxStreak = 0,
+  status = 'PLAYING',
+}) {
   if (!roomState?.objectId) return roomState;
-  const playerState = buildPlayerState(user, { score, currentQuestion, correctAnswers, status });
+  const playerState = buildPlayerState(user, {
+    score,
+    currentQuestion,
+    correctAnswers,
+    maxStreak,
+    status,
+  });
   try {
     const room = await upsertPlayerInRoom(roomState, user, playerState);
     logBaaSEvent('4. MultiplayerRoom', 'PUT (sync)', `${user.username}: ${score} pts (Q${currentQuestion})`);
@@ -384,7 +411,7 @@ export function subscribeRealtimeUpdates({
       if (includeRoom && onRoomUpdate) {
         tasks.push(
           findRoom(code).then((room) => {
-            if (room) onRoomUpdate(room);
+            onRoomUpdate(room);
           })
         );
       }
@@ -395,7 +422,7 @@ export function subscribeRealtimeUpdates({
     } catch {
       // falha de rede momentânea
     }
-  }, 2500);
+  }, 2000);
 
   return () => {
     clearInterval(poll);

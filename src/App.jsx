@@ -7,6 +7,7 @@ import {
   logoutPlayer,
   fetchQuizQuestions,
   fetchLeaderboard,
+  fetchMultiplayerRoom,
   submitMatchScore,
   joinOrCreateMultiplayerRoom,
   updateMultiplayerProgress,
@@ -34,6 +35,22 @@ function getInitials(name = '') {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
   return clean.slice(0, 2).toUpperCase();
+}
+
+function formatScoreDateTime(isoString) {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return '';
+  const day = new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
+  const time = new Intl.DateTimeFormat('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+  return `${day} às ${time}`;
 }
 
 export default function App() {
@@ -66,13 +83,21 @@ export default function App() {
   const [maxStreak, setMaxStreak] = useState(0);
 
   const timerRef = useRef(null);
-  const matchScoreIdRef = useRef(null);
+  const matchSavedRef = useRef(false);
 
   useEffect(() => {
     loadLeaderboard(roomFilter);
   }, [roomFilter]);
 
-  // Tempo real: sala multiplayer + ranking ao vivo a cada questão respondida
+  useEffect(() => {
+    if (!user) {
+      setRoomState(null);
+      return;
+    }
+    fetchMultiplayerRoom(roomCode).then(setRoomState);
+  }, [user, roomCode]);
+
+  // Tempo real: sala multiplayer (a cada questão) + histórico de pontuações
   useEffect(() => {
     return subscribeRealtimeUpdates({
       roomCode,
@@ -138,7 +163,7 @@ export default function App() {
 
   function handleStartMatch() {
     runSafely(async () => {
-      matchScoreIdRef.current = null;
+      matchSavedRef.current = false;
       const [loadedQuestions, room] = await Promise.all([
         fetchQuizQuestions(),
         joinOrCreateMultiplayerRoom({ user, roomCode }),
@@ -174,6 +199,7 @@ export default function App() {
     const newCorrect = isCorrect ? correctAnswers + 1 : correctAnswers;
     const newMaxStreak = Math.max(maxStreak, points.newStreak);
     const answeredCount = currentIndex + 1;
+    const isMatchFinished = answeredCount >= questions.length;
 
     setSelectedOption(optionIndex);
     setLastPoints(points);
@@ -183,33 +209,18 @@ export default function App() {
     setMaxStreak(newMaxStreak);
 
     try {
-      const [updatedRoom, savedScore] = await Promise.all([
-        updateMultiplayerProgress({
-          user,
-          roomState,
-          score: newScore,
-          currentQuestion: answeredCount,
-          correctAnswers: newCorrect,
-          status: answeredCount >= questions.length ? 'FINISHED' : 'PLAYING',
-        }),
-        submitMatchScore({
-          user,
-          scoreObjectId: matchScoreIdRef.current,
-          score: newScore,
-          correctAnswers: newCorrect,
-          totalQuestions: answeredCount,
-          maxStreak: newMaxStreak,
-          roomCode,
-        }),
-      ]);
-
+      const updatedRoom = await updateMultiplayerProgress({
+        user,
+        roomState,
+        score: newScore,
+        currentQuestion: answeredCount,
+        correctAnswers: newCorrect,
+        maxStreak: newMaxStreak,
+        status: isMatchFinished ? 'FINISHED' : 'PLAYING',
+      });
       setRoomState(updatedRoom);
-      if (savedScore?.objectId) {
-        matchScoreIdRef.current = savedScore.objectId;
-      }
-      await loadLeaderboard(roomFilter);
     } catch (err) {
-      setError(err.message || 'Não foi possível atualizar o placar em tempo real.');
+      setError(err.message || 'Não foi possível atualizar o ranking em tempo real da sala.');
     }
   }
 
@@ -223,17 +234,16 @@ export default function App() {
     }
 
     runSafely(async () => {
-      if (!matchScoreIdRef.current) {
-        const saved = await submitMatchScore({
+      if (!matchSavedRef.current) {
+        await submitMatchScore({
           user,
-          scoreObjectId: matchScoreIdRef.current,
           score,
           correctAnswers,
           totalQuestions: questions.length,
           maxStreak,
           roomCode,
         });
-        if (saved?.objectId) matchScoreIdRef.current = saved.objectId;
+        matchSavedRef.current = true;
       }
       await loadLeaderboard(roomFilter);
       setScreen('RESULT');
@@ -410,7 +420,14 @@ export default function App() {
                 ))}
               </div>
 
-              <RoomPlayers roomCode={roomCode} players={roomPlayers} currentUser={user} />
+              <div className="room-info-banner">
+                <strong>💡 Como jogar em grupo</strong>
+                <p className="text-muted">
+                  Compartilhe o código <strong>{roomCode}</strong> com outro jogador e clique em{' '}
+                  <strong>Iniciar Partida</strong>. A disputa aparece ao vivo no painel{' '}
+                  <strong>⚡ Ranking da Sala em Tempo Real</strong> ao lado!
+                </p>
+              </div>
             </div>
           )}
 
@@ -548,22 +565,23 @@ export default function App() {
           )}
         </main>
 
-        {/* ------------------------------ RANKING DE JOGADORES ------------------------------ */}
+        {/* ------------------------------ RANKINGS SEPARADOS ------------------------------ */}
         <aside className="sidebar">
-          {user && (screen === 'QUIZ' || screen === 'RESULT') && (
-            <div className="card ranking-card">
-              <RoomPlayers roomCode={roomCode} players={roomPlayers} currentUser={user} />
-            </div>
-          )}
+          {/* ESPAÇO 1: RANKING EM TEMPO REAL DA SALA ATUAL */}
+          <div className="card ranking-card live-room-card">
+            <LiveRoomRanking
+              roomCode={roomCode}
+              players={roomPlayers}
+              currentUser={user}
+            />
+          </div>
 
+          {/* ESPAÇO 2: RANKING ANTERIOR (HISTÓRICO DE PARTIDAS) */}
           <div className="card ranking-card">
             <div className="ranking-header">
               <div>
-                <h3 className="card-title">
-                  🏆 Ranking de Jogadores
-                  <span className="live-pill">● Ao vivo</span>
-                </h3>
-                <p className="ranking-subtitle">Atualizado automaticamente a cada questão</p>
+                <h3 className="card-title">📜 Ranking Anterior</h3>
+                <p className="ranking-subtitle">Histórico de pontuações já encerradas</p>
               </div>
               <div className="ranking-filters">
                 <button
@@ -587,14 +605,15 @@ export default function App() {
               {leaderboard.length === 0 ? (
                 <div className="empty-ranking">
                   <div className="empty-ranking-icon">🏅</div>
-                  <p>Nenhuma pontuação registrada ainda.</p>
-                  <span>Jogue uma partida para estrear o placar!</span>
+                  <p>Nenhuma pontuação anterior registrada.</p>
+                  <span>Finalize uma partida para salvar no histórico!</span>
                 </div>
               ) : (
                 leaderboard.slice(0, 10).map((entry, idx) => {
                   const isCurrentUser = user && entry.playerName === user.username;
                   const podiumClass =
                     idx === 0 ? 'podium-gold' : idx === 1 ? 'podium-silver' : idx === 2 ? 'podium-bronze' : '';
+                  const dateLabel = formatScoreDateTime(entry.createdAt || entry.updatedAt);
 
                   return (
                     <div
@@ -626,6 +645,12 @@ export default function App() {
                               </>
                             )}
                           </div>
+                          {dateLabel && (
+                            <div className="ranking-date-row">
+                              🕒 {dateLabel}
+                              {entry.roomCode ? ` • Sala ${entry.roomCode}` : ''}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -656,18 +681,34 @@ function Hud({ label, value, color, small }) {
   );
 }
 
-function RoomPlayers({ roomCode, players, currentUser }) {
+function LiveRoomRanking({ roomCode, players, currentUser }) {
   return (
-    <div className="room-box">
-      <div className="room-head">
-        <strong>👥 Jogadores na Sala {roomCode}</strong>
-        <span className="room-count-pill">{players.length} online</span>
+    <div>
+      <div className="ranking-header">
+        <div>
+          <h3 className="card-title">
+            ⚡ Ranking da Sala
+            <span className="live-pill">● Ao vivo</span>
+          </h3>
+          <p className="ranking-subtitle">
+            Sala <strong>{roomCode}</strong> • Atualizado a cada questão
+          </p>
+        </div>
+        <span className="room-count-pill">{players.length} na sala</span>
       </div>
-      {players.length === 0 ? (
-        <p className="text-muted">
-          Clique em &ldquo;Iniciar Partida&rdquo; para entrar na sala. Seus amigos conectados na
-          mesma sala aparecerão aqui em tempo real!
-        </p>
+
+      {!currentUser ? (
+        <div className="empty-ranking">
+          <div className="empty-ranking-icon">⚡</div>
+          <p>Disputa em tempo real por sala</p>
+          <span>Entre com sua conta para acompanhar o ranking ao vivo da sua sala.</span>
+        </div>
+      ) : players.length === 0 ? (
+        <div className="empty-ranking">
+          <div className="empty-ranking-icon">👥</div>
+          <p>Nenhum jogador ativo em {roomCode}</p>
+          <span>Clique em &ldquo;Iniciar Partida&rdquo; para abrir o placar em tempo real!</span>
+        </div>
       ) : (
         <div className="leaderboard-list">
           {players.map((p, idx) => {
@@ -689,11 +730,17 @@ function RoomPlayers({ roomCode, players, currentUser }) {
                     <div className="ranking-user-details">
                       <span>
                         {p.status === 'FINISHED'
-                          ? '✅ Partida concluída'
+                          ? '✅ Finalizado'
                           : `⚡ Questão ${p.currentQuestion}`}
                       </span>
                       <span className="ranking-dot">•</span>
                       <span>{p.correctAnswers || 0} acerto(s)</span>
+                      {p.maxStreak > 1 && (
+                        <>
+                          <span className="ranking-dot">•</span>
+                          <span>🔥 {p.maxStreak}x</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
