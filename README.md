@@ -40,7 +40,7 @@ npm test                  # testes funcionais (Vitest)
    | Classe | CLP recomendada |
    | :--- | :--- |
    | `Question` | Public: **Read** apenas |
-   | `GameScore` | Public: Read · Authenticated: Create |
+   | `GameScore` | Public: Read · Authenticated: Create/Update |
    | `MultiplayerRoom` | Public: Read · Authenticated: Create/Update |
 5. **(Opcional) Tempo real via LiveQuery:** **Server Settings → Web Hosting and Live Query** → ative o subdomínio, habilite LiveQuery para `MultiplayerRoom` e `GameScore` e defina `VITE_BACK4APP_LIVEQUERY_URL=wss://SEU_SUBDOMINIO.b4a.io`.
    Sem isso, a sala sincroniza por polling a cada 3s.

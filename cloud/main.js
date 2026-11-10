@@ -14,6 +14,7 @@ Parse.Cloud.define('validateAndSaveScore', async (request) => {
   }
 
   const {
+    scoreObjectId,
     playerName,
     score,
     correctAnswers,
@@ -27,7 +28,7 @@ Parse.Cloud.define('validateAndSaveScore', async (request) => {
 
   // Validação Anti-Cheat no Servidor (Cloud Code)
   const maxPossiblePerQuestion = 200 + 20 * 5 + 125; // 425 pts máx por questão
-  const maxTheoreticalScore = (Number(totalQuestions) || 6) * maxPossiblePerQuestion;
+  const maxTheoreticalScore = Math.max(1, Number(totalQuestions) || 1) * maxPossiblePerQuestion;
 
   if (typeof score !== 'number' || score < 0 || score > maxTheoreticalScore) {
     throw new Parse.Error(
@@ -37,7 +38,27 @@ Parse.Cloud.define('validateAndSaveScore', async (request) => {
   }
 
   const GameScore = Parse.Object.extend('GameScore');
-  const gameScore = new GameScore();
+  let gameScore;
+
+  if (scoreObjectId) {
+    const query = new Parse.Query(GameScore);
+    gameScore = await query.get(scoreObjectId, { useMasterKey: true });
+    const owner = gameScore.get('player');
+    if (!owner || owner.id !== user.id) {
+      throw new Parse.Error(
+        Parse.Error.OPERATION_FORBIDDEN,
+        'Você só pode atualizar a sua própria pontuação.'
+      );
+    }
+  } else {
+    gameScore = new GameScore();
+    gameScore.set('player', user);
+
+    // Configura ACL (Leitura Pública para Ranking, Escrita restrita ao usuário dono)
+    const acl = new Parse.ACL(user);
+    acl.setPublicReadAccess(true);
+    gameScore.setACL(acl);
+  }
 
   gameScore.set('playerName', playerName || user.get('username'));
   gameScore.set('score', Math.round(score));
@@ -48,12 +69,6 @@ Parse.Cloud.define('validateAndSaveScore', async (request) => {
   gameScore.set('rankTitle', rankTitle || 'Cloud Trainee');
   gameScore.set('roomCode', (roomCode || 'GLOBAL').toUpperCase());
   gameScore.set('category', category || 'Cloud & DevOps');
-  gameScore.set('player', user);
-
-  // Configura ACL (Leitura Pública para Ranking, Escrita restrita ao usuário dono)
-  const acl = new Parse.ACL(user);
-  acl.setPublicReadAccess(true);
-  gameScore.setACL(acl);
 
   await gameScore.save(null, { useMasterKey: true });
 
@@ -65,5 +80,6 @@ Parse.Cloud.define('validateAndSaveScore', async (request) => {
     rankTitle: gameScore.get('rankTitle'),
     roomCode: gameScore.get('roomCode'),
     createdAt: gameScore.createdAt,
+    updatedAt: gameScore.updatedAt,
   };
 });

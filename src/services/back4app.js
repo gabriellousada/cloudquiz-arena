@@ -187,9 +187,17 @@ export async function fetchLeaderboard(roomFilter = 'ALL') {
 }
 
 // ============================================================================
-// RECURSOS #3 e #5: ACL + CLOUD CODE (salvar pontuação)
+// RECURSOS #3 e #5: ACL + CLOUD CODE (criar e atualizar pontuação ao vivo)
 // ============================================================================
-export async function submitMatchScore({ user, score, correctAnswers, totalQuestions, maxStreak, roomCode = 'GLOBAL' }) {
+export async function submitMatchScore({
+  user,
+  scoreObjectId = null,
+  score,
+  correctAnswers,
+  totalQuestions,
+  maxStreak,
+  roomCode = 'GLOBAL',
+}) {
   const payload = buildBack4AppScorePayload({
     userId: user.objectId,
     username: user.username,
@@ -211,15 +219,33 @@ export async function submitMatchScore({ user, score, correctAnswers, totalQuest
     const res = await parseRequest('/functions/validateAndSaveScore', {
       method: 'POST',
       sessionToken: user.sessionToken,
-      body: payload,
+      body: scoreObjectId ? { ...payload, scoreObjectId } : payload,
     });
-    logBaaSEvent('5. Cloud Code', 'POST /functions/validateAndSaveScore', `${payload.score} pts validados e salvos`);
-    return res.result || payload;
+    logBaaSEvent(
+      '5. Cloud Code',
+      'POST /functions/validateAndSaveScore',
+      `${payload.score} pts validados e ${scoreObjectId ? 'atualizados' : 'salvos'}`
+    );
+    return res.result || { ...payload, objectId: scoreObjectId };
   } catch (err) {
     logBaaSEvent('5. Cloud Code', 'Function indisponível', `${err.message} — salvando direto na classe`, 'WARN');
   }
 
-  // Fallback: grava direto na classe GameScore (com a mesma ACL)
+  // Fallback: cria ou atualiza direto na classe GameScore (com a mesma ACL)
+  if (scoreObjectId) {
+    try {
+      const updated = await parseRequest(`/classes/GameScore/${scoreObjectId}`, {
+        method: 'PUT',
+        sessionToken: user.sessionToken,
+        body: payload,
+      });
+      logBaaSEvent('2. Database (GameScore)', `PUT /classes/GameScore/${scoreObjectId}`, `${payload.score} pts atualizados`);
+      return { ...payload, objectId: scoreObjectId, updatedAt: updated.updatedAt };
+    } catch {
+      // Caso o registro tenha sido apagado manualmente, recria abaixo
+    }
+  }
+
   const created = await parseRequest('/classes/GameScore', {
     method: 'POST',
     sessionToken: user.sessionToken,
@@ -309,9 +335,15 @@ export async function updateMultiplayerProgress({ user, roomState, score, curren
 /**
  * Escuta mudanças em tempo real:
  *  - LiveQuery (WebSocket) se VITE_BACK4APP_LIVEQUERY_URL estiver configurada;
- *  - Polling REST a cada 3s como garantia (funciona mesmo sem LiveQuery).
+ *  - Polling REST a cada 2,5s da sala e do ranking como garantia (funciona mesmo sem LiveQuery).
  */
-export function subscribeRealtimeUpdates({ roomCode, onRoomUpdate, onScoreCreated }) {
+export function subscribeRealtimeUpdates({
+  roomCode,
+  roomFilter = 'ALL',
+  includeRoom = true,
+  onRoomUpdate,
+  onLeaderboardUpdate,
+}) {
   if (!isBack4AppConfigured) return () => {};
 
   const code = normalizeRoomCode(roomCode);
@@ -322,16 +354,20 @@ export function subscribeRealtimeUpdates({ roomCode, onRoomUpdate, onScoreCreate
       ws = new WebSocket(BACK4APP.liveQueryUrl);
       ws.onopen = () => {
         ws.send(JSON.stringify({ op: 'connect', applicationId: BACK4APP.appId, javascriptKey: BACK4APP.jsKey }));
-        ws.send(JSON.stringify({ op: 'subscribe', requestId: 1, query: { className: 'MultiplayerRoom', where: { roomCode: code } } }));
+        if (includeRoom) {
+          ws.send(JSON.stringify({ op: 'subscribe', requestId: 1, query: { className: 'MultiplayerRoom', where: { roomCode: code } } }));
+        }
         ws.send(JSON.stringify({ op: 'subscribe', requestId: 2, query: { className: 'GameScore', where: {} } }));
         logBaaSEvent('4. LiveQuery', 'WebSocket conectado', `Inscrito em MultiplayerRoom [${code}] e GameScore`);
       };
-      ws.onmessage = (msg) => {
+      ws.onmessage = async (msg) => {
         try {
           const data = JSON.parse(msg.data);
           if ((data.op === 'create' || data.op === 'update') && data.object) {
             if (data.requestId === 1) onRoomUpdate?.(data.object);
-            if (data.requestId === 2) onScoreCreated?.(data.object);
+            if (data.requestId === 2 && onLeaderboardUpdate) {
+              onLeaderboardUpdate(await fetchLeaderboard(roomFilter));
+            }
           }
         } catch {
           // mensagem inválida: ignora
@@ -344,12 +380,22 @@ export function subscribeRealtimeUpdates({ roomCode, onRoomUpdate, onScoreCreate
 
   const poll = setInterval(async () => {
     try {
-      const room = await findRoom(code);
-      if (room) onRoomUpdate?.(room);
+      const tasks = [];
+      if (includeRoom && onRoomUpdate) {
+        tasks.push(
+          findRoom(code).then((room) => {
+            if (room) onRoomUpdate(room);
+          })
+        );
+      }
+      if (onLeaderboardUpdate) {
+        tasks.push(fetchLeaderboard(roomFilter).then((list) => onLeaderboardUpdate(list)));
+      }
+      await Promise.all(tasks);
     } catch {
       // falha de rede momentânea
     }
-  }, 3000);
+  }, 2500);
 
   return () => {
     clearInterval(poll);
