@@ -1,90 +1,90 @@
-# ☁️ CloudQuiz Arena — Cloud-Powered Multiplayer Mini-Game (Docker + BaaS)
+# ☁️ CloudQuiz Arena — Quiz Multiplayer com Vercel + Back4App
 
-**Universidade de Fortaleza (UNIFOR)**  
-**Centro de Ciências Tecnológicas (CCT) — Ciência da Computação**  
-**Disciplina:** Desenvolvimento de Software em Nuvem  
-**Tema Escolhido:** CloudQuiz (Multiplayer Sincronizado)
+**UNIFOR — Desenvolvimento de Software em Nuvem — Trabalho Final**
 
----
+Mini-game de perguntas e respostas sobre Computação em Nuvem com **salas multiplayer sincronizadas** e **ranking global**.
 
-## 📋 Visão Geral do Projeto
+| Camada | Tecnologia |
+| :--- | :--- |
+| Frontend | React 18 + Vite (hospedado na **Vercel**) |
+| Backend (BaaS) | **Back4App** (Parse Server) |
+| CI | GitHub Actions (Vitest + build) |
+| CD | Integração Git da Vercel (produção na `main`, preview em PRs) |
 
-O **CloudQuiz Arena** é um mini-game web multiplayer sincronizado de perguntas e respostas sobre **Computação em Nuvem, Docker, CI/CD e Arquitetura de Software**. A aplicação foi projetada seguindo os modelos **IaaS, PaaS e BaaS**, integrando:
-
-- **Frontend:** Aplicação SPA construída com **Vite + React 18**.
-- **Backend as a Service (BaaS):** **Back4App (Parse Platform)** integrando **5 recursos da plataforma**:
-  1. **Autenticação de Jogadores (`_User`):** Cadastro (`POST /users`), Login (`GET /login`), Logout (`POST /logout`) e controle de sessão (`X-Parse-Session-Token`).
-  2. **Persistência de Dados (`Classes`):** Classes estruturadas `Question`, `GameScore` e `MultiplayerRoom` com relacionamentos via `Pointer`.
-  3. **Segurança (`ACLs & CLPs`):** Regras de *Access Control List* por documento (`"*": { "read": true }` para leitura pública do ranking e escrita restrita ao `objectId` do próprio jogador autenticado).
-  4. **Sincronização em Tempo Real (`LiveQuery / MultiplayerRoom`):** Sincronização instantânea de salas multiplayer e placar global via WebSockets (`Parse LiveQuery`) e eventos em tempo real.
-  5. **Cloud Code Functions (`/functions/validateAndSaveScore`):** Validação *anti-cheat* da pontuação no servidor antes da gravação definitiva ([`cloud/main.js`](./cloud/main.js)).
-- **Conteinerização e Orquestração (IaaS/PaaS):** `Dockerfile` *Multi-Stage* otimizado (`node:20-alpine` → `nginx:stable-alpine`) implantado em **VPS Linux na Oracle Cloud Infrastructure (OCI)** e gerenciado via **Portainer**.
-- **Automação CI/CD e Testes Funcionais:** Pipeline automatizado no **GitHub Actions** ([`.github/workflows/ci-cd.yml`](./.github/workflows/ci-cd.yml)) executando testes funcionais no **Vitest** (`npm test`), validação de build (`npm run build`), publicação de imagem no GitHub Container Registry (`ghcr.io`) e disparo automático do **Webhook do Portainer**.
+### Recursos do Back4App utilizados
+1. **Autenticação** — classe `_User` (cadastro, login, logout, session token).
+2. **Banco de dados** — classes `Question`, `GameScore`, `MultiplayerRoom`.
+3. **Segurança** — ACL em cada `GameScore` (leitura pública, escrita só do dono) + CLPs.
+4. **Tempo real** — sala `MultiplayerRoom` sincronizada (LiveQuery via WebSocket + polling de garantia).
+5. **Cloud Code** — função `validateAndSaveScore` com validação anti-cheat ([cloud/main.js](./cloud/main.js)).
 
 ---
 
-## 🚀 Como Executar Localmente
+## 1. Rodar localmente
 
-### 1. Pré-requisitos
-- Node.js 20+ (ou Docker instalado)
-
-### 2. Instalação e Execução em Modo Desenvolvimento
 ```bash
 npm install
-npm run dev
-```
-Acesse no navegador: `http://localhost:5173`
-
-> **Dica de Teste Multiplayer Local:** Você pode abrir duas abas lado a lado em `http://localhost:5173`, clicar em **⚡ Demo Jogador 1** na primeira aba e **⚡ Demo Jogador 2** na segunda aba, entrar na mesma sala (`UNIFOR-01`) e assistir ao placar sincronizando em tempo real!
-
-### 3. Executar os Testes Funcionais Automatizados (Vitest)
-```bash
-npm test
+cp .env.example .env      # preencha com as chaves do Back4App
+npm run dev               # http://localhost:5173
+npm test                  # testes funcionais (Vitest)
 ```
 
-### 4. Testar Compilação de Produção (Vite Build)
-```bash
-npm run build
-npm run preview
-```
+## 2. Configurar o Back4App (uma vez)
 
-### 5. Executar via Docker (Multi-Stage Nginx)
-```bash
-docker build -t cloudquiz-baas:latest .
-docker run -d -p 8080:80 --name cloudquiz-arena cloudquiz-baas:latest
-```
-Acesse em: `http://localhost:8080` (Healthcheck disponível em `http://localhost:8080/healthz`).
+1. Crie um app em https://www.back4app.com → **App Settings → Security & Keys** e copie
+   `Application ID`, `JavaScript Key` e `Master Key` para o `.env`.
+2. **Popular as questões:** `npm run seed` (usa a Master Key só localmente — ela nunca vai para o frontend).
+3. **Cloud Code:** em **Cloud Code → Functions**, cole o conteúdo de [`cloud/main.js`](./cloud/main.js) e clique em **Deploy**.
+   *(Opcional: sem ela, o jogo salva direto na classe `GameScore` com a mesma ACL.)*
+4. **Permissões (Database → classe → Security / CLP):**
+   | Classe | CLP recomendada |
+   | :--- | :--- |
+   | `Question` | Public: **Read** apenas |
+   | `GameScore` | Public: Read · Authenticated: Create |
+   | `MultiplayerRoom` | Public: Read · Authenticated: Create/Update |
+5. **(Opcional) Tempo real via LiveQuery:** **Server Settings → Web Hosting and Live Query** → ative o subdomínio, habilite LiveQuery para `MultiplayerRoom` e `GameScore` e defina `VITE_BACK4APP_LIVEQUERY_URL=wss://SEU_SUBDOMINIO.b4a.io`.
+   Sem isso, a sala sincroniza por polling a cada 3s.
+
+## 3. Deploy na Vercel
+
+1. Suba o projeto para um repositório no GitHub.
+2. Em https://vercel.com/new importe o repositório (a Vercel detecta **Vite** automaticamente; `vercel.json` já está pronto).
+3. Em **Settings → Environment Variables** adicione:
+   - `VITE_BACK4APP_APP_ID`
+   - `VITE_BACK4APP_JS_KEY`
+   - `VITE_BACK4APP_SERVER_URL` = `https://parseapi.back4app.com`
+   - `VITE_BACK4APP_LIVEQUERY_URL` *(opcional)*
+   > ⚠️ **Não** adicione a `BACK4APP_MASTER_KEY` na Vercel.
+4. Clique em **Deploy**. A partir daí, todo `push` na `main` publica em produção e cada PR ganha uma URL de preview.
+
+> Variáveis `VITE_*` são embutidas no build: ao alterá-las, faça **Redeploy**.
+
+Alternativa via CLI: `npx vercel` (preview) e `npx vercel --prod` (produção).
 
 ---
 
-## 📂 Estrutura do Repositório
+## Estrutura
 
 ```text
 cloudquiz-baas/
-├── .github/
-│   └── workflows/
-│       └── ci-cd.yml                  # Pipeline CI/CD (Vitest + Vite Build + GHCR + Portainer Webhook)
-├── cloud/
-│   └── main.js                        # Cloud Code Function para o Back4App (validação anti-cheat e ACL)
-├── docs/
-│   └── ENTREGA_1_E_2_COMPLETO.md      # Documento Completo: Entrega 1 (Plano) + Entrega 2 (Relatório Técnico)
+├── .github/workflows/ci-cd.yml   # CI: Vitest + build
+├── cloud/main.js                 # Cloud Code (Back4App)
+├── docs/ENTREGA_1_E_2_COMPLETO.md
+├── scripts/seed-questions.mjs    # Popula a classe Question
 ├── src/
-│   ├── data/
-│   │   └── defaultQuestions.js        # Banco de questões de Cloud Computing, Docker, BaaS e CI/CD
-│   ├── services/
-│   │   └── back4app.js                # Integração com os 5 recursos do Back4App + Telemetria ao vivo
-│   ├── utils/
-│   │   ├── gameRules.js               # Regras de cálculo de pontuação, vitória multiplayer e payload ACL
-│   │   └── __tests__/
-│   │       └── gameRules.test.js      # Suite de Testes Funcionais Automatizados (Vitest)
-│   ├── App.jsx                        # Interface completa (Auth, Lobby Multiplayer, Quiz Arena, Ranking)
-│   ├── main.jsx                       # Ponto de entrada React
-│   └── styles.css                     # Estilização responsiva tema Cloud/DevOps
-├── .dockerignore
-├── .env.example                       # Exemplo de variáveis de ambiente do Back4App
-├── Dockerfile                         # Build Multi-Stage otimizado (Node 20 Alpine -> Nginx Alpine)
-├── docker-compose.yml                 # Stack pronta para implantação no Portainer (Oracle Cloud VPS)
-├── nginx.conf                         # Configuração SPA + Gzip + /healthz
-├── package.json
-└── vite.config.js
+│   ├── data/defaultQuestions.js
+│   ├── services/back4app.js      # Toda a integração com o Back4App
+│   ├── utils/gameRules.js        # Regras de pontuação/vitória + payload ACL
+│   ├── utils/__tests__/gameRules.test.js
+│   ├── App.jsx · main.jsx · styles.css
+├── .env.example
+├── vercel.json
+└── package.json
+```
+
+## Fluxo
+
+```text
+[Dev] -> [GitHub Push/PR] -> [GitHub Actions: testes + build] 
+                          -> [Vercel: build + deploy (preview/produção)] -> [App no ar] <-> [Back4App]
 ```

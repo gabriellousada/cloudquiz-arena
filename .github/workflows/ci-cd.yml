@@ -1,108 +1,33 @@
-name: CI/CD Pipeline - CloudQuiz (Vite + Vitest + Docker + Portainer OCI)
+name: CI - Testes e Build (deploy automático pela Vercel)
+
+# O deploy é feito pela integração GitHub <-> Vercel:
+#  - push na main  -> deploy de PRODUÇÃO
+#  - pull request  -> deploy de PREVIEW (URL própria comentada no PR)
+# Este workflow garante que testes e build passam antes do merge.
 
 on:
   push:
-    branches:
-      - main
-      - dev
+    branches: [main, dev]
   pull_request:
-    branches:
-      - main
-      - dev
-
-permissions:
-  contents: read
-  packages: write
+    branches: [main, dev]
 
 jobs:
-  # ============================================================================
-  # JOB 1: Validação de Build (Vite) e Execução de Testes Funcionais (Vitest)
-  # ============================================================================
-  validate-and-test:
-    name: 1. Build Vite & Testes Funcionais (Vitest)
+  test-and-build:
+    name: Vitest + Vite Build
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout do Código-Fonte
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configurar Ambiente Node.js 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
-      - name: Instalar Dependências (npm ci)
+      - name: Instalar dependências
         run: npm ci
 
-      - name: Executar Testes Funcionais Automatizados (Vitest)
+      - name: Testes funcionais (Vitest)
         run: npm test
 
-      - name: Validar Compilação do Projeto Frontend (npm run build)
-        env:
-          VITE_BACK4APP_APP_ID: ${{ secrets.VITE_BACK4APP_APP_ID }}
-          VITE_BACK4APP_JS_KEY: ${{ secrets.VITE_BACK4APP_JS_KEY }}
-          VITE_BACK4APP_SERVER_URL: ${{ secrets.VITE_BACK4APP_SERVER_URL || 'https://parseapi.back4app.com' }}
-          VITE_BACK4APP_LIVEQUERY_URL: ${{ secrets.VITE_BACK4APP_LIVEQUERY_URL }}
+      - name: Build de produção (Vite)
         run: npm run build
-
-  # ============================================================================
-  # JOB 2: Build da Imagem Docker e Deploy Contínuo via Webhook no Portainer (OCI)
-  # ============================================================================
-  deploy-oracle-cloud-portainer:
-    name: 2. Docker Build & Deploy Automatizado (Portainer OCI)
-    needs: validate-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout do Código-Fonte
-        uses: actions/checkout@v4
-
-      - name: Login no GitHub Container Registry (GHCR)
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extrair Metadados e Tags para o Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=raw,value=latest
-            type=sha,prefix=sha-
-
-      - name: Build e Push da Imagem Docker Otimizada (Multi-Stage)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VITE_BACK4APP_APP_ID=${{ secrets.VITE_BACK4APP_APP_ID }}
-            VITE_BACK4APP_JS_KEY=${{ secrets.VITE_BACK4APP_JS_KEY }}
-            VITE_BACK4APP_SERVER_URL=${{ secrets.VITE_BACK4APP_SERVER_URL || 'https://parseapi.back4app.com' }}
-            VITE_BACK4APP_LIVEQUERY_URL=${{ secrets.VITE_BACK4APP_LIVEQUERY_URL }}
-
-      - name: Acionar Webhook de Redeploy no Portainer (VPS Oracle Cloud OCI)
-        env:
-          PORTAINER_WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
-        run: |
-          if [ -z "$PORTAINER_WEBHOOK_URL" ]; then
-            echo "⚠️ Aviso: A secret PORTAINER_WEBHOOK_URL ainda não foi configurada no GitHub."
-            echo "Configure em Settings -> Secrets and variables -> Actions -> PORTAINER_WEBHOOK_URL."
-            exit 0
-          fi
-          echo "🚀 Disparando atualização automática da Stack/Contêiner no Portainer (Oracle Cloud)..."
-          HTTP_STATUS=$(curl -k -s -o /dev/null -w "%{http_code}" -X POST "$PORTAINER_WEBHOOK_URL")
-          echo "Resposta HTTP do Portainer Webhook: $HTTP_STATUS"
-          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
-            echo "✅ Deploy Contínuo concluído com sucesso na VPS Oracle Cloud!"
-          else
-            echo "❌ Falha ao acionar o Webhook do Portainer (HTTP $HTTP_STATUS)"
-            exit 1
-          fi

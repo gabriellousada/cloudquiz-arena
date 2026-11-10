@@ -509,3 +509,118 @@ body {
   overflow-x: auto;
   margin-top: 10px;
 }
+
+/* ---- Helpers (versão Vercel) ---- */
+.alert {
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.88rem;
+  margin-bottom: 20px;
+}
+.alert code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+}
+.alert-warning {
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fcd34d;
+}
+.alert-error {
+  background: rgba(244, 63, 94, 0.14);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  color: #fda4af;
+}
+.btn-block {
+  width: 100%;
+  margin-top: 6px;
+}
+.hint {
+  margin-top: 16px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.chips.no-margin {
+  margin-bottom: 0;
+}
+.room-box {
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid var(--border-subtle);
+}
+.room-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 0.88rem;
+  color: var(--accent-primary);
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.row-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.player-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.player-meta {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+.score-mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 800;
+  color: var(--accent-primary);
+}
+.text-muted {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+.text-emerald {
+  color: var(--accent-emerald);
+}
+.explanation-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.explanation-banner .text-muted {
+  margin-bottom: 12px;
+}
+.telemetry-head {
+  display: flex;
+  justify-content: space-between;
+  color: var(--accent-primary);
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.telemetry-action {
+  color: #e2e8f0;
+  font-weight: 600;
+}
+.telemetry-item.warn {
+  border-left-color: var(--accent-amber);
+}
