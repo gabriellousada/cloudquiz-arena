@@ -1,0 +1,24 @@
+{
+  "name": "cloudquiz-baas",
+  "private": true,
+  "version": "1.0.0",
+  "description": "CloudQuiz Multiplayer Sincronizado - Trabalho Final de Desenvolvimento de Software em Nuvem (UNIFOR)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 8080",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "jsdom": "^25.0.0",
+    "vite": "^5.4.8",
+    "vitest": "^2.1.2"
+  }
+}
