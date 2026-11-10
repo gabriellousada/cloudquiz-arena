@@ -10,8 +10,8 @@
  */
 import { DEFAULT_CLOUD_QUESTIONS } from '../src/data/defaultQuestions.js';
 
-const appId = process.env.VITE_BACK4APP_APP_ID;
-const masterKey = process.env.BACK4APP_MASTER_KEY;
+const appId = (process.env.VITE_BACK4APP_APP_ID || '').trim();
+const masterKey = (process.env.BACK4APP_MASTER_KEY || '').trim();
 const serverUrl = (process.env.VITE_BACK4APP_SERVER_URL || 'https://parseapi.back4app.com').replace(/\/$/, '');
 
 if (!appId || !masterKey) {
