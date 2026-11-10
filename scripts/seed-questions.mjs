@@ -1,5 +1,5 @@
 /**
- * Popula a classe `Question` no Back4App com as questões padrão do jogo.
+ * Popula (ou atualiza) a classe `Question` no Back4App com as questões de Computação em Nuvem.
  *
  * Uso (Node 20.6+):
  *   npm run seed
@@ -25,12 +25,18 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-const countRes = await fetch(`${serverUrl}/classes/Question?count=1&limit=0`, { headers });
-const { count = 0 } = await countRes.json();
+// Remove questões antigas (caso existam) para garantir que o banco fique atualizado
+const existingRes = await fetch(`${serverUrl}/classes/Question?limit=100`, { headers });
+const { results: existingQuestions = [] } = await existingRes.json();
 
-if (count > 0) {
-  console.log(`ℹ️ A classe Question já possui ${count} questões. Nada a fazer.`);
-  process.exit(0);
+if (existingQuestions.length > 0) {
+  console.log(`🔄 Atualizando banco: removendo ${existingQuestions.length} questões antigas...`);
+  for (const oldQ of existingQuestions) {
+    await fetch(`${serverUrl}/classes/Question/${oldQ.objectId}`, {
+      method: 'DELETE',
+      headers,
+    });
+  }
 }
 
 for (const q of DEFAULT_CLOUD_QUESTIONS) {
@@ -53,4 +59,4 @@ for (const q of DEFAULT_CLOUD_QUESTIONS) {
   }
 }
 
-console.log(`✅ ${DEFAULT_CLOUD_QUESTIONS.length} questões criadas na classe Question do Back4App.`);
+console.log(`✅ ${DEFAULT_CLOUD_QUESTIONS.length} questões de Computação em Nuvem cadastradas no Back4App!`);

@@ -11,16 +11,30 @@ import {
   joinOrCreateMultiplayerRoom,
   updateMultiplayerProgress,
   subscribeRealtimeUpdates,
-  subscribeBaaSTelemetry,
 } from './services/back4app';
 import {
   calculateQuestionScore,
   evaluateMatchResult,
-  buildBack4AppScorePayload,
   GAME_CONFIG,
 } from './utils/gameRules';
 
 const ROOM_PRESETS = ['UNIFOR-01', 'UNIFOR-02', 'GLOBAL'];
+
+const DIFFICULTY_LABELS = {
+  easy: 'Fácil',
+  medium: 'Médio',
+  hard: 'Difícil',
+};
+
+function getInitials(name = '') {
+  const clean = name.trim();
+  if (!clean) return 'JG';
+  const parts = clean.split(/[\s_-]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return clean.slice(0, 2).toUpperCase();
+}
 
 export default function App() {
   const [user, setUser] = useState(() => getCurrentUser());
@@ -39,7 +53,6 @@ export default function App() {
   const [roomFilter, setRoomFilter] = useState('ALL');
   const [roomState, setRoomState] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
-  const [telemetry, setTelemetry] = useState([]);
 
   // Partida
   const [questions, setQuestions] = useState([]);
@@ -51,11 +64,8 @@ export default function App() {
   const [correctAnswers, setCorrectAnswers] = useState(0);
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
-  const [lastSavedPayload, setLastSavedPayload] = useState(null);
 
   const timerRef = useRef(null);
-
-  useEffect(() => subscribeBaaSTelemetry(setTelemetry), []);
 
   useEffect(() => {
     loadLeaderboard(roomFilter);
@@ -97,7 +107,7 @@ export default function App() {
     try {
       await action();
     } catch (err) {
-      setError(err.message || 'Erro inesperado ao comunicar com o Back4App.');
+      setError(err.message || 'Não foi possível concluir a operação.');
     } finally {
       setLoading(false);
     }
@@ -188,17 +198,14 @@ export default function App() {
     }
 
     runSafely(async () => {
-      const matchData = {
+      await submitMatchScore({
+        user,
         score,
         correctAnswers,
         totalQuestions: questions.length,
         maxStreak,
         roomCode,
-      };
-      setLastSavedPayload(
-        buildBack4AppScorePayload({ userId: user.objectId, username: user.username, ...matchData })
-      );
-      await submitMatchScore({ user, ...matchData });
+      });
       await loadLeaderboard(roomFilter);
       setScreen('RESULT');
     });
@@ -221,31 +228,33 @@ export default function App() {
         <div className="brand-group">
           <div className="brand-logo">☁️</div>
           <div>
-            <div className="brand-title">
-              CloudQuiz Arena
-              <span className="version-pill">v1.0 • Vercel + Back4App</span>
+            <div className="brand-title">CloudQuiz Arena</div>
+            <div className="brand-subtitle">
+              Desafio Multiplayer de Computação em Nuvem
             </div>
-            <div className="brand-subtitle">Quiz multiplayer sincronizado — Desenvolvimento de Software em Nuvem (UNIFOR)</div>
           </div>
         </div>
 
         <div className="topbar-actions">
           <div className="status-badge">
             <span className={`status-dot ${isBack4AppConfigured ? 'online' : 'emulator'}`} />
-            {isBack4AppConfigured ? 'Back4App conectado' : 'Back4App não configurado'}
+            {isBack4AppConfigured ? 'Servidor Online' : 'Servidor Offline'}
           </div>
           {user && (
-            <button type="button" className="btn btn-secondary btn-sm" onClick={handleLogout}>
-              Sair ({user.username})
-            </button>
+            <div className="user-topbar-pill">
+              <span className="user-avatar-sm">{getInitials(user.username)}</span>
+              <span className="user-topbar-name">{user.username}</span>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={handleLogout}>
+                Sair
+              </button>
+            </div>
           )}
         </div>
       </header>
 
       {!isBack4AppConfigured && (
         <div className="alert alert-warning">
-          ⚠️ Defina as variáveis <code>VITE_BACK4APP_APP_ID</code> e <code>VITE_BACK4APP_JS_KEY</code> no arquivo{' '}
-          <code>.env</code> (local) ou em <strong>Settings → Environment Variables</strong> na Vercel e faça um novo deploy.
+          ⚠️ Configure as variáveis de ambiente do servidor para habilitar o login e o ranking online.
         </div>
       )}
 
@@ -257,41 +266,76 @@ export default function App() {
           {screen === 'AUTH' && (
             <div className="card">
               <div className="card-header">
-                <h2 className="card-title">🔐 Entrar no CloudQuiz</h2>
-                <span className="version-pill">Back4App _User</span>
+                <h2 className="card-title">🔐 Acessar o CloudQuiz</h2>
               </div>
 
               <div className="tab-group">
-                <button type="button" className={`tab-btn ${authTab === 'login' ? 'active' : ''}`} onClick={() => setAuthTab('login')}>
-                  Login
+                <button
+                  type="button"
+                  className={`tab-btn ${authTab === 'login' ? 'active' : ''}`}
+                  onClick={() => setAuthTab('login')}
+                >
+                  Entrar
                 </button>
-                <button type="button" className={`tab-btn ${authTab === 'register' ? 'active' : ''}`} onClick={() => setAuthTab('register')}>
-                  Criar conta
+                <button
+                  type="button"
+                  className={`tab-btn ${authTab === 'register' ? 'active' : ''}`}
+                  onClick={() => setAuthTab('register')}
+                >
+                  Criar Conta
                 </button>
               </div>
 
               <form onSubmit={handleAuthSubmit}>
                 <div className="form-group">
-                  <label className="form-label">Usuário</label>
-                  <input className="form-input" required value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Ex: Gabriel_Cloud" />
+                  <label className="form-label">Nome de Jogador</label>
+                  <input
+                    className="form-input"
+                    required
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="Ex: Gabriel"
+                  />
                 </div>
                 {authTab === 'register' && (
                   <div className="form-group">
                     <label className="form-label">E-mail</label>
-                    <input className="form-input" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="aluno@edu.unifor.br" />
+                    <input
+                      className="form-input"
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="seuemail@exemplo.com"
+                    />
                   </div>
                 )}
                 <div className="form-group">
                   <label className="form-label">Senha</label>
-                  <input className="form-input" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+                  <input
+                    className="form-input"
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                  />
                 </div>
-                <button type="submit" className="btn btn-primary btn-block" disabled={loading || !isBack4AppConfigured}>
-                  {loading ? 'Conectando ao Back4App...' : authTab === 'register' ? 'Criar conta' : 'Entrar'}
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-block"
+                  disabled={loading || !isBack4AppConfigured}
+                >
+                  {loading
+                    ? 'Aguarde...'
+                    : authTab === 'register'
+                    ? 'Criar conta e jogar'
+                    : 'Entrar no jogo'}
                 </button>
               </form>
 
               <p className="hint">
-                💡 Para testar o multiplayer, abra duas abas, entre com contas diferentes e use o mesmo código de sala.
+                💡 Convide seus amigos para a mesma sala e disputem quem faz mais pontos em tempo real!
               </p>
             </div>
           )}
@@ -301,26 +345,41 @@ export default function App() {
             <div className="card">
               <div className="card-header">
                 <h2 className="card-title">🎮 Lobby Multiplayer</h2>
-                <span className="version-pill">Olá, {user.username}</span>
+                <span className="version-pill">Bem-vindo, {user.username}</span>
               </div>
 
-              <label className="form-label">Código da sala</label>
+              <label className="form-label">Escolha ou digite o código da sala</label>
               <div className="row">
-                <input className="form-input" value={roomCode} onChange={(e) => setRoomCode(e.target.value.toUpperCase())} placeholder="UNIFOR-01" />
-                <button type="button" className="btn btn-primary" onClick={handleStartMatch} disabled={loading}>
-                  {loading ? 'Carregando...' : '🚀 Iniciar partida'}
+                <input
+                  className="form-input"
+                  value={roomCode}
+                  onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                  placeholder="UNIFOR-01"
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleStartMatch}
+                  disabled={loading}
+                >
+                  {loading ? 'Preparando...' : '🚀 Iniciar Partida'}
                 </button>
               </div>
 
               <div className="chips">
                 {ROOM_PRESETS.map((preset) => (
-                  <button key={preset} type="button" className={`btn btn-sm ${roomCode === preset ? 'btn-emerald' : 'btn-secondary'}`} onClick={() => setRoomCode(preset)}>
-                    {preset}
+                  <button
+                    key={preset}
+                    type="button"
+                    className={`btn btn-sm ${roomCode === preset ? 'btn-emerald' : 'btn-secondary'}`}
+                    onClick={() => setRoomCode(preset)}
+                  >
+                    Sala {preset}
                   </button>
                 ))}
               </div>
 
-              <RoomPlayers roomCode={roomCode} players={roomPlayers} />
+              <RoomPlayers roomCode={roomCode} players={roomPlayers} currentUser={user} />
             </div>
           )}
 
@@ -328,21 +387,33 @@ export default function App() {
           {screen === 'QUIZ' && currentQuestion && (
             <div className="card">
               <div className="card-header">
-                <h2 className="card-title">⚡ [{roomCode}] Questão {currentIndex + 1}/{questions.length}</h2>
+                <h2 className="card-title">
+                  ⚡ Questão {currentIndex + 1} de {questions.length}
+                </h2>
                 <span className="version-pill">{currentQuestion.category}</span>
               </div>
 
               <div className="quiz-hud">
-                <Hud label="Tempo" value={`${timeRemaining}s`} color={timeRemaining <= 5 ? 'var(--accent-rose)' : 'var(--accent-primary)'} />
+                <Hud
+                  label="Tempo"
+                  value={`${timeRemaining}s`}
+                  color={timeRemaining <= 5 ? 'var(--accent-rose)' : 'var(--accent-primary)'}
+                />
                 <Hud label="Pontos" value={score} color="var(--accent-emerald)" />
-                <Hud label="Streak 🔥" value={`${streak}x`} color="var(--accent-amber)" />
-                <Hud label="Nível" value={currentQuestion.difficulty.toUpperCase()} small />
+                <Hud label="Sequência 🔥" value={`${streak}x`} color="var(--accent-amber)" />
+                <Hud
+                  label="Dificuldade"
+                  value={DIFFICULTY_LABELS[currentQuestion.difficulty] || 'Médio'}
+                  small
+                />
               </div>
 
               <div className="question-box">
                 <div className="question-meta">
                   <span>{currentQuestion.category}</span>
-                  <span>Base: {GAME_CONFIG.BASE_POINTS_BY_DIFFICULTY[currentQuestion.difficulty]} pts</span>
+                  <span>
+                    Valor base: {GAME_CONFIG.BASE_POINTS_BY_DIFFICULTY[currentQuestion.difficulty]} pts
+                  </span>
                 </div>
                 <div className="question-text">{currentQuestion.question}</div>
               </div>
@@ -355,7 +426,13 @@ export default function App() {
                     else if (idx === selectedOption) status = 'wrong';
                   }
                   return (
-                    <button key={idx} type="button" disabled={selectedOption !== null} className={`option-btn ${status}`} onClick={() => handleSelectAnswer(idx)}>
+                    <button
+                      key={idx}
+                      type="button"
+                      disabled={selectedOption !== null}
+                      className={`option-btn ${status}`}
+                      onClick={() => handleSelectAnswer(idx)}
+                    >
                       <span className="option-letter">{String.fromCharCode(65 + idx)}</span>
                       <span>{opt}</span>
                     </button>
@@ -367,17 +444,31 @@ export default function App() {
                 <div className="explanation-banner">
                   <div className="explanation-title">
                     <span>
-                      {selectedOption === currentQuestion.correctIndex ? '✅ Correto!' : selectedOption === -1 ? '⏱️ Tempo esgotado!' : '❌ Incorreto!'}
+                      {selectedOption === currentQuestion.correctIndex
+                        ? '✅ Resposta Correta!'
+                        : selectedOption === -1
+                        ? '⏱️ Tempo Esgotado!'
+                        : '❌ Resposta Incorreta!'}
                     </span>
                     {lastPoints?.totalPoints > 0 && (
                       <span className="text-emerald">
-                        +{lastPoints.totalPoints} pts ({lastPoints.basePoints} base + {lastPoints.timeBonus} tempo + {lastPoints.streakBonus} streak)
+                        +{lastPoints.totalPoints} pts ({lastPoints.basePoints} base +{' '}
+                        {lastPoints.timeBonus} tempo + {lastPoints.streakBonus} sequência)
                       </span>
                     )}
                   </div>
                   <p className="text-muted">{currentQuestion.explanation}</p>
-                  <button type="button" className="btn btn-primary btn-block" onClick={handleNextQuestion} disabled={loading}>
-                    {currentIndex + 1 < questions.length ? 'Próxima questão →' : loading ? 'Salvando no Back4App...' : 'Finalizar e salvar 🏆'}
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-block"
+                    onClick={handleNextQuestion}
+                    disabled={loading}
+                  >
+                    {currentIndex + 1 < questions.length
+                      ? 'Próxima Questão →'
+                      : loading
+                      ? 'Salvando pontuação...'
+                      : 'Ver Resultado Final 🏆'}
                   </button>
                 </div>
               )}
@@ -386,91 +477,126 @@ export default function App() {
 
           {/* ------------------------------ RESULTADO ------------------------------ */}
           {screen === 'RESULT' && (
-            <div className="card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  {matchEvaluation.badge} {matchEvaluation.rankTitle}
-                </h2>
-                <span className="version-pill">{matchEvaluation.isVictory ? 'VITÓRIA' : 'TENTE NOVAMENTE'}</span>
+            <div className="card result-card">
+              <div className="result-hero">
+                <div className="result-badge-icon">{matchEvaluation.badge}</div>
+                <div className="result-status-pill">
+                  {matchEvaluation.isVictory ? '🎉 Parabéns! Mandou muito bem!' : '💪 Bom esforço! Continue praticando!'}
+                </div>
+                <h2 className="result-rank-title">{matchEvaluation.rankTitle}</h2>
+                <p className="text-muted">
+                  Sua pontuação já foi registrada no Ranking de Jogadores.
+                </p>
               </div>
 
               <div className="quiz-hud">
-                <Hud label="Score" value={score} color="var(--accent-emerald)" />
+                <Hud label="Pontuação Total" value={score} color="var(--accent-emerald)" />
                 <Hud label="Precisão" value={`${matchEvaluation.accuracy}%`} />
                 <Hud label="Acertos" value={`${correctAnswers}/${questions.length}`} />
-                <Hud label="Maior streak" value={`${maxStreak}x`} color="var(--accent-amber)" />
+                <Hud label="Maior Sequência" value={`${maxStreak}x`} color="var(--accent-amber)" />
               </div>
 
-              {lastSavedPayload && (
-                <>
-                  <div className="form-label">🔒 Registro salvo no Back4App (com Pointer e ACL):</div>
-                  <pre className="code-preview">{JSON.stringify(lastSavedPayload, null, 2)}</pre>
-                </>
-              )}
-
-              <div className="chips">
-                <button type="button" className="btn btn-primary" onClick={handleStartMatch} disabled={loading}>
-                  🔄 Jogar novamente
+              <div className="chips result-actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleStartMatch}
+                  disabled={loading}
+                >
+                  🔄 Jogar Novamente
                 </button>
-                <button type="button" className="btn btn-secondary" onClick={() => setScreen('LOBBY')}>
-                  🏠 Lobby
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setScreen('LOBBY')}
+                >
+                  🏠 Voltar ao Lobby
                 </button>
               </div>
             </div>
           )}
         </main>
 
-        {/* ------------------------------ LATERAL ------------------------------ */}
+        {/* ------------------------------ RANKING DE JOGADORES ------------------------------ */}
         <aside className="sidebar">
-          <div className="card">
-            <div className="card-header">
-              <h3 className="card-title">🏆 Ranking</h3>
-              <div className="chips no-margin">
-                <button type="button" className={`btn btn-sm ${roomFilter === 'ALL' ? 'btn-emerald' : 'btn-secondary'}`} onClick={() => setRoomFilter('ALL')}>
-                  Global
+          <div className="card ranking-card">
+            <div className="ranking-header">
+              <div>
+                <h3 className="card-title">🏆 Ranking de Jogadores</h3>
+                <p className="ranking-subtitle">Os melhores desempenhos da arena</p>
+              </div>
+              <div className="ranking-filters">
+                <button
+                  type="button"
+                  className={`filter-pill ${roomFilter === 'ALL' ? 'active' : ''}`}
+                  onClick={() => setRoomFilter('ALL')}
+                >
+                  🌍 Geral
                 </button>
-                <button type="button" className={`btn btn-sm ${roomFilter === roomCode ? 'btn-emerald' : 'btn-secondary'}`} onClick={() => setRoomFilter(roomCode)}>
-                  {roomCode}
+                <button
+                  type="button"
+                  className={`filter-pill ${roomFilter === roomCode ? 'active' : ''}`}
+                  onClick={() => setRoomFilter(roomCode)}
+                >
+                  🎯 Sala {roomCode}
                 </button>
               </div>
             </div>
 
             <div className="leaderboard-list">
-              {leaderboard.length === 0 && <p className="text-muted">Nenhuma pontuação registrada ainda.</p>}
-              {leaderboard.slice(0, 10).map((entry, idx) => (
-                <div key={entry.objectId || idx} className={`leaderboard-row ${entry.playerName === user?.username ? 'highlight' : ''}`}>
-                  <div className="row-left">
-                    <span className="rank-pos">{['🥇', '🥈', '🥉'][idx] || `${idx + 1}º`}</span>
-                    <div>
-                      <div className="player-name">{entry.playerName}</div>
-                      <div className="player-meta">
-                        {entry.rankTitle} • {entry.roomCode || 'GLOBAL'} ({entry.accuracy}%)
+              {leaderboard.length === 0 ? (
+                <div className="empty-ranking">
+                  <div className="empty-ranking-icon">🏅</div>
+                  <p>Nenhuma pontuação registrada ainda.</p>
+                  <span>Jogue uma partida para estrear o placar!</span>
+                </div>
+              ) : (
+                leaderboard.slice(0, 10).map((entry, idx) => {
+                  const isCurrentUser = user && entry.playerName === user.username;
+                  const podiumClass =
+                    idx === 0 ? 'podium-gold' : idx === 1 ? 'podium-silver' : idx === 2 ? 'podium-bronze' : '';
+
+                  return (
+                    <div
+                      key={entry.objectId || idx}
+                      className={`ranking-item ${podiumClass} ${isCurrentUser ? 'is-me' : ''}`}
+                    >
+                      <div className="ranking-left">
+                        <div className={`ranking-medal ${podiumClass}`}>
+                          {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}º`}
+                        </div>
+
+                        <div className="ranking-avatar">
+                          {getInitials(entry.playerName)}
+                        </div>
+
+                        <div className="ranking-user-info">
+                          <div className="ranking-name-row">
+                            <span className="ranking-player-name">{entry.playerName}</span>
+                            {isCurrentUser && <span className="you-badge">Você</span>}
+                          </div>
+                          <div className="ranking-user-details">
+                            <span className="ranking-title-badge">{entry.rankTitle}</span>
+                            <span className="ranking-dot">•</span>
+                            <span>{entry.accuracy}% de acerto</span>
+                            {entry.maxStreak > 1 && (
+                              <>
+                                <span className="ranking-dot">•</span>
+                                <span>🔥 {entry.maxStreak}x</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="ranking-score-box">
+                        <span className="ranking-score-value">{entry.score}</span>
+                        <span className="ranking-score-unit">pts</span>
                       </div>
                     </div>
-                  </div>
-                  <span className="score-mono">{entry.score} pts</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-header">
-              <h3 className="card-title">📡 Telemetria Back4App</h3>
-              <span className="version-pill">Ao vivo</span>
-            </div>
-            <div className="telemetry-feed">
-              {telemetry.length === 0 && <div className="text-muted">Aguardando chamadas ao Back4App...</div>}
-              {telemetry.map((item) => (
-                <div key={item.id} className={`telemetry-item ${item.status === 'WARN' ? 'warn' : ''}`}>
-                  <div className="telemetry-head">
-                    <span>{item.feature}</span>
-                    <span className="text-muted">{item.timestamp}</span>
-                  </div>
-                  <div className="telemetry-action">{item.action}</div>
-                  <div className="text-muted">{item.details}</div>
-                </div>
-              ))}
+                  );
+                })
+              )}
             </div>
           </div>
         </aside>
@@ -490,25 +616,47 @@ function Hud({ label, value, color, small }) {
   );
 }
 
-function RoomPlayers({ roomCode, players }) {
+function RoomPlayers({ roomCode, players, currentUser }) {
   return (
     <div className="room-box">
       <div className="room-head">
-        <strong>📡 Sala [{roomCode}] em tempo real</strong>
-        <span className="text-muted">{players.length} jogador(es)</span>
+        <strong>👥 Jogadores na Sala {roomCode}</strong>
+        <span className="room-count-pill">{players.length} online</span>
       </div>
       {players.length === 0 ? (
-        <p className="text-muted">Inicie uma partida para entrar na sala. Jogadores na mesma sala aparecem aqui ao vivo.</p>
+        <p className="text-muted">
+          Clique em &ldquo;Iniciar Partida&rdquo; para entrar na sala. Seus amigos conectados na
+          mesma sala aparecerão aqui em tempo real!
+        </p>
       ) : (
         <div className="leaderboard-list">
-          {players.map((p) => (
-            <div key={p.userId} className="leaderboard-row">
-              <div>
-                <strong>{p.username}</strong> <span className="player-meta">• Questão {p.currentQuestion} ({p.status})</span>
+          {players.map((p) => {
+            const isMe = currentUser && p.userId === currentUser.objectId;
+            return (
+              <div key={p.userId} className={`ranking-item ${isMe ? 'is-me' : ''}`}>
+                <div className="ranking-left">
+                  <div className="ranking-avatar">{getInitials(p.username)}</div>
+                  <div className="ranking-user-info">
+                    <div className="ranking-name-row">
+                      <span className="ranking-player-name">{p.username}</span>
+                      {isMe && <span className="you-badge">Você</span>}
+                    </div>
+                    <div className="ranking-user-details">
+                      <span>
+                        {p.status === 'FINISHED'
+                          ? '✅ Partida concluída'
+                          : `⚡ Respondendo questão ${p.currentQuestion}`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="ranking-score-box">
+                  <span className="ranking-score-value">{p.score}</span>
+                  <span className="ranking-score-unit">pts</span>
+                </div>
               </div>
-              <span className="score-mono text-emerald">{p.score} pts</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
