@@ -1,4 +1,4 @@
-# ☁️ CloudQuiz Arena — Quiz Multiplayer com Vercel + Back4App
+# CloudQuiz Arena — Quiz Multiplayer com Vercel + Back4App
 
 **UNIFOR — Desenvolvimento de Software em Nuvem — Trabalho Final**
 
@@ -54,7 +54,7 @@ npm test                  # testes funcionais (Vitest)
    - `VITE_BACK4APP_JS_KEY`
    - `VITE_BACK4APP_SERVER_URL` = `https://parseapi.back4app.com`
    - `VITE_BACK4APP_LIVEQUERY_URL` *(opcional)*
-   > ⚠️ **Não** adicione a `BACK4APP_MASTER_KEY` na Vercel.
+   > **Não** adicione a `BACK4APP_MASTER_KEY` na Vercel.
 4. Clique em **Deploy**. A partir daí, todo `push` na `main` publica em produção e cada PR ganha uma URL de preview.
 
 > Variáveis `VITE_*` são embutidas no build: ao alterá-las, faça **Redeploy**.
